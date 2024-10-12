@@ -1,0 +1,795 @@
+---
+title: "Project 4"
+author: "Roy Prah"
+date: "2024-07-24"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Please see the file "Project_4.pdf" for the details, definitions, and scenario for this project.  This template is for the questions and answers only.
+
+
+```{r echo=F, message=F, warning=F}
+# load needed packages
+# use "install.packages" to download the ones you need 
+library(dplyr)
+library(ggplot2)
+library(formattable)
+library(ranger)
+library(Synth)
+library(tidyverse)
+library(usmap)
+library(vip)
+```
+
+
+### 1.  In anticipation of presenting results to organizational partners, and to better understand cross-state differences, we begin the analysis by creating and analyzing a set of graphs.
+
+
+#### (1a) Use ggplot2 functionality to create a time series (line) chart that shows the fatality rate for (1) New York, (2) the annual average fatality rate for the District of Columbia and non New York states (i.e., 49 states), and (3) the annual population weighted average fatality rate for the District of Columbia and non New York states. (9 points)
+
+For this graph and all other graphs presented for this project, ensure you properly label each axis, and the legend and title. “Proper labeling” includes, but is not limited to, using “business friendly descriptions” of variables in graphs in lieu of R variable names. For example, “Fatalities per 100MM Vehicle Miles” or ”Fatality Rate” could be used in lieu of fat per 100m vmt. For each time series graph provided for this project, co-plotted series need to be distinguished.
+
+Run the following code chunk to load and prepare the data for the plot.
+
+```{r}
+# Read Data
+df_00 <- readRDS("NewProject4_hh_cell_ban.RDS")
+
+
+df_0 <-subset(df_00, select = -c(vmt_traveled_100m))
+
+# prepare the data, create separate data frames for plotting
+# New York
+df_ny <- filter(df_0, state=="NEW YORK")
+df_ny <- subset(df_ny, select = c(date,fat_per_100m_vmt))
+df_ny  <- df_ny  %>% 
+  rename("ny_fat_per_100m_vmt" = "fat_per_100m_vmt")
+
+# DC and non-NY states
+df_not_ny <- filter(df_0, !state=="NEW YORK")
+
+# average fatality rate for DC and non-NY states
+df_avg_1 <- df_not_ny %>% 
+  group_by(date) %>%
+  summarise(not_ny_fat_per_100m_vmt_avg = mean(fat_per_100m_vmt))
+
+# annual population weighted average fatality rate for DC and non-NY states 
+df_avg_2 <- df_not_ny %>% 
+  group_by(date) %>%
+  summarise(not_ny_fat_per_100m_vmt_wavg = weighted.mean(fat_per_100m_vmt,population))
+
+# join separate df's back into one for plotting together
+df_list <- list(df_ny,df_avg_1,df_avg_2)
+df_y_plot <- df_list %>% reduce(full_join, by=c('date'))
+df_y_plot <- df_y_plot[order(df_y_plot$date,decreasing = FALSE),]
+
+# use year as the time variable in the time series plot
+df_y_plot$year <- as.Date(paste(df_y_plot$date,1,1,sep = "-")) 
+```
+
+
+Use the code chunk below to use ggplot2 to create this plot.
+
+```{r}
+# Pivot longer for plotting
+df_y_plot_long <- df_y_plot %>%
+  pivot_longer(cols = c(ny_fat_per_100m_vmt, not_ny_fat_per_100m_vmt_avg, not_ny_fat_per_100m_vmt_wavg),
+               names_to = "type", values_to = "fatality_rate")
+# Plot the time series chart
+ggplot(df_y_plot_long, aes(x = year, y = fatality_rate, color = type)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Fatality Rate Over Time",
+    x = "Year",
+    y = "Fatality Rate per 100M VMT",
+    color = "Series"
+  ) +
+  scale_color_manual(
+    values = c("ny_fat_per_100m_vmt" = "blue", "not_ny_fat_per_100m_vmt_avg" = "red", "not_ny_fat_per_100m_vmt_wavg" = "green"),
+    labels = c("New York", "Annual Average (DC + Non-NY States)", "Population Weighted Average (DC + Non-NY States)")
+  ) +
+  theme_minimal()
+
+```
+
+
+
+#### (1b) Use the R function plot_usmap() of the package of the same name to create a graph of each state’s cross-time average of GDP per capita. For this graph and other graphs of state variables, use the scale fill continuous() option of ggplot2 to illustrate the cross-state variation of the variable graphed. (9 points)
+
+Run the following code chunk to load and prepare the data and then create this plot.  
+
+```{r}
+# Create the cross-time average of the 4 predictors. 
+df_avg <- df_0 %>% 
+  group_by(state) %>%
+  summarise_at(vars(real_gdp_capita,pop_sq_mi,per_hs_25plus,
+                     vmt_per_capita),list(group = mean))
+
+# 1b: use plot_usmap() to plot average of real_gdp_capita
+plot_usmap(data = df_avg, values = "real_gdp_capita_group", color = "green4") + 
+     scale_fill_continuous(low = "white", high = "green4", 
+                           name = "Real GDP Per Capita",
+                           label = scales::dollar_format()) +
+     theme(legend.position = "right", 
+           plot.title = element_text(hjust = 0.5,size=16),
+           plot.subtitle = element_text(hjust = 0.5,size=13)) +
+     labs(title = "Average Real GDP Per Capita", subtitle = "1995 through 2008")
+```
+
+
+#### (1c) Use plot usmap to create a graph of each state’s cross-time average of population density. (9 points)
+
+Use the code from part 1b as an example and please change the colors used in this plot to something different from the previous plot.  See https://r-charts.com/colors/ for some color options.
+
+```{r}
+
+# Plot the average population density using plot_usmap()
+plot_usmap(data = df_avg, values = "pop_sq_mi_group", color = "darkblue") + 
+  scale_fill_continuous(low = "lightblue", high = "darkblue", 
+                        name = "Population Density (pop/sq mi)",
+                        label = scales::comma_format()) +
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 13)) +
+  labs(title = "Average Population Density", subtitle = "1995 through 2008")
+
+```
+
+
+#### (1d) Use plot usmap to create a graph of each state’s cross-time average of HS graduation percent. (9 points)
+
+Use the code from part 1b as an example and please change the colors used in this plot to something different from the previous plot.
+
+```{r}
+
+# # Plot the average high school graduation percent using plot_usmap()
+plot_usmap(data = df_avg, values = "per_hs_25plus_group", color = "darkred") + 
+  scale_fill_continuous(low = "lightcoral", high = "darkred", 
+                        name = "HS Graduation Percent",
+                        label = scales::percent_format()) +
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 13)) +
+  labs(title = "Average High School Graduation Percent", subtitle = "1995 through 2008")
+
+```
+
+
+#### (1e) Use plot usmap to create a graph of each state’s cross-time average of VMT per capita. (9 points)
+
+Use the code from part 1b as an example and please change the colors used in this plot to something different from the previous plot.
+
+```{r}
+
+# Plot the average VMT per capita using plot_usmap()
+plot_usmap(data = df_avg, values = "vmt_per_capita_group", color = "darkorange") + 
+  scale_fill_continuous(low = "lightyellow", high = "darkorange", 
+                        name = "VMT Per Capita",
+                        label = scales::comma_format()) +
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 13)) +
+  labs(title = "Average VMT Per Capita", subtitle = "1995 through 2008")
+
+```
+
+
+#### (1f) The values of GDP per capita and population density for the District of Columbia greatly distort the potential learnings from the graphs created for exercises (b) and (c), respectively. Create a graph of each state’s cross-time average of GDP per capita and and a graph of each state’s cross-time average population density where the District of Columbia is removed from the data frame used to create the graphs. (9 points)
+
+Use the code from part 1b as an example and please change the colors used in these plots to something different from the previous plot.
+
+```{r}
+# remove data for DC (leave this part alone)
+df_avg_0 <- subset(df_avg,state!="DISTRICT OF COLUMBIA")
+
+
+# Plot the average GDP per capita without DC
+plot_usmap(data = df_avg, values = "real_gdp_capita_group", color = "purple") + 
+  scale_fill_continuous(low = "lavender", high = "purple", 
+                        name = "Real GDP Per Capita",
+                        label = scales::dollar_format()) +
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 13)) +
+  labs(title = "Average Real GDP Per Capita", subtitle = "1995 through 2008 (Excluding DC)")
+
+
+# Plot the average population density without DC
+plot_usmap(data = df_avg, values = "pop_sq_mi_group", color = "blue") + 
+  scale_fill_continuous(low = "lightblue", high = "blue", 
+                        name = "Population Density (pop/sq mi)",
+                        label = scales::comma_format()) +
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 13)) +
+  labs(title = "Average Population Density", subtitle = "1995 through 2008 (Excluding DC)")
+
+```
+
+#### (1g) In one or two paragraphs and using the graphs created, compare and contrast the New York statistics to those of the other states. Are you able to identify a state, or a set of states, that is similar in their values of GDP per capita, population density, HS graduation percent, and VMT per capita to those of New York? Explain your answer. (10 points)
+
+
+Based on the graphs created, New York shows high GDP per capita, significant population density, a high high school graduation rate, and unique VMT per capita due to its extensive public transportation system. States like Massachusetts, New Jersey, and Connecticut exhibit similar characteristics. These states have strong economies reflected in their high GDP per capita, dense populations centered around urban areas, robust educational systems with high graduation rates, and lower VMT per capita in urban regions due to effective public transit. Consequently, these states are comparable to New York across multiple metrics, highlighting shared economic, educational, and transportation trends.
+
+
+##### Below we will use donor pool state values of GDP per capita, population density, HS graduation percent, and VMT per capita to create Synthetic New York so we may conduct causal inference.
+
+### 2. SCM assumes pre-intervention predictor values should be predictive of pre-intervention fatality rates. It is expected that states with large GDP per capita have a smaller fatality rate when compared to states with smaller GDP per capita. The same is expected for states with larger population densities (Clark (2003)) and larger HS graduation percents. In addition, states with larger VMT per capita are expected to have larger fatality rates.
+
+#### (2a) Using state-level data prior to 2002 and the lm function, regress fatality rate on GDP per capita, population density, HS graduation percent, and VMT per capita. Report the coefficient estimates, standard errors of the coefficient estimates, R-squared and Adjusted R-squared. Do the estimated coefficients have the correct signs? Does the model fit the data “well?” Explain your answer for the latter question. (10 points)
+
+
+```{r}
+
+# Subset the data to include only the years prior to 2002
+df_pre_2002 <- df_0 %>% filter(date < 2002)
+
+# Run the regression model
+model <- lm(fat_per_100m_vmt ~ real_gdp_capita + pop_sq_mi + per_hs_25plus + vmt_per_capita, data = df_pre_2002)
+
+# Summary of the regression model
+model_summary <- summary(model)
+print(model_summary)
+
+# Extract the coefficients and their standard errors
+coefficients <- model_summary$coefficients
+r_squared <- model_summary$r.squared
+adj_r_squared <- model_summary$adj.r.squared
+
+# Print the results
+cat("Coefficient Estimates and Standard Errors:\n")
+print(coefficients)
+cat("\nR-squared: ", r_squared, "\n")
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+
+```
+
+
+#### (2b) If the relationship between the outcome variable and the predictors is nonlinear, the conventional SCM may lead to biased estimation. If one were to consider a nonparametric SCM estimator to mitigate the possibility of bias, such as the estimator proposed by Cai et al.(2023), one would first want to determine if the candidate predictors could sufficiently predict state-level annual fatality rates. Use the R function ranger to fit a random forest (RF) using the default hyperparameter values. Set importance equal to permutation, num.trees equal to 500, and seed equal to 614. As for the linear regression model, the outcome variable is fatality rate, the predictors are GDP per capita, population density, HS graduation percent, and VMT per capita. The data to be used to train the RF is the data prior to 2002. Report the out-of-bag (OOB) prediction error (MSE) and R-squared for the OOB observations. Use the R function vip to create the permutation variable importance graph. Given the RF results, do you believe the predictors sufficiently predict the fatality rate? Explain your answer. (10 points)
+
+Answer: The OOB R-squared value of 0.79 indicates that the random forest model explains 79% of the variance in the fatality rate for the OOB observations. This suggests that the predictors (GDP per capita, population density, HS graduation percent, and VMT per capita) have strong predictive power for the fatality rate. The relatively low OOB prediction error (MSE) further supports the model's accuracy.
+The permutation variable importance graph generated by the vip function provides insight into the relative importance of each predictor. If the importance scores are high for the predictors, it reinforces their relevance in predicting the fatality rate.
+
+
+```{r}
+ 
+# Remove the unnecessary column
+df_0 <- subset(df_00, select = -c(vmt_traveled_100m))
+
+# Subset the data to include only the years prior to 2002
+df_pre_2002 <- df_0 %>% filter(date < 2002)
+
+# Fit the random forest model
+set.seed(614)
+rf_model <- ranger(
+  formula = fat_per_100m_vmt ~ real_gdp_capita + pop_sq_mi + per_hs_25plus + vmt_per_capita,
+  data = df_pre_2002,
+  importance = "permutation",
+  num.trees = 500,
+  seed = 614
+)
+
+# Extract OOB prediction error (MSE) and R-squared
+oob_error <- rf_model$prediction.error
+oob_r_squared <- 1 - rf_model$prediction.error / var(df_pre_2002$fat_per_100m_vmt)
+
+# Print the results
+cat("OOB Prediction Error (MSE): ", oob_error, "\n")
+cat("OOB R-squared: ", oob_r_squared, "\n")
+
+# Create the permutation variable importance graph using vip
+vip_plot <- vip(rf_model, num_features = 4, geom = "point")
+print(vip_plot)
+
+```
+
+
+###  3.  Despite any possible misgivings about using the conventional SCM, we will use it to conduct causal inference
+
+#### (3a)  To estimate the SCM weights using the synth function, it is ideal to use the dataprep function of the Synth package to prepare the data. For the 4 predictors of the linear regression and RF fatality rate modeling exercises, use the following dataprep parameter specifications to prepare the data for SCM weight estimation. (11 points)
+
+- unit.variable is an integer-valued variable that uniquely identifies each state. Let this variable be named state id.
+
+- predictors.op = ‘‘mean’’
+
+- time.variable=c(‘‘date’’)
+
+- treatment.identifier is the value of state id that maps to New York.
+
+- controls.identifier are the set of state id values that are not New York and not one of the following: California, Connecticut, New Jersey, Utah, Washington, and District of Columbia. These 5 states and the District of Columbia enacted laws similar to that of New York prior to the end of our analysis period, and hence are removed from the list of donor pool states.
+
+- time.predictors.prior = c(1995:2001)
+
+- time.optimize.ssr = c(1995:2008)
+
+After dataprep has successfully created a list that may be used by the synth function to estimate SCM weights, call the synth function with the following parameter settings: optimxmethod = c(‘‘Nelder-Mead’’, ‘‘BFGS’’) genoud = FALSE, quadopt =‘‘ipop’’, Margin.ipop = 5e-04, Sigf.ipop = 6, and Bound.ipop = 10. Output the state-level SCM weights. 
+
+Run the following code chunk to produce the synthetic control model weights. You do not need to make any changes in the code.
+
+```{r}
+
+# Q3 - Synthetic Control Method Execution
+
+df_a1 <- subset(df_0,select = c(state,date,
+                                fat_per_100m_vmt,real_gdp_capita,
+                          pop_sq_mi,per_hs_25plus,vmt_per_capita))
+
+df_a2 <- df_a1 %>% group_by(state) %>% mutate(state_id = cur_group_id())
+
+# Time ID:  date
+# a) intervention date is 2002 
+# b) matching period are date values in {1995,1996,...2001}
+# c) results period are date values in {1995,1996, ...2008} 
+
+# state is the variable that specifies the units.
+# a) treatment unit number is NEW YORK, or state_id = 33
+# b) The states are dropped due to passing handheld cell phone bans during the
+# period of interest:  (1) California, (2) Connecticut, (3) New Jersey,
+# (4) Utah, (5) Washington and (6) District of Columbia.  Which are state_ids,
+# 5, 7, 9, 31, 45, and 48
+
+# Outcome Variable:  fat_per_100m_vmt
+
+# Predictor Variables: (1) real_gdp_capita, (2) pop_sq_mi, (3) per_hs_25plus,
+# and (4) vmt_per_capita. 
+
+# Preparing data for analysis
+# See: https://rpubs.com/danilofreire/synth and the synth help file. 
+
+df_a3 <- df_a2 %>% filter(!state_id %in% c(5,7,9,31,45,48)) 
+df_a4 <- as.data.frame(df_a3)
+
+df_a5 <- dataprep(df_a4,
+                predictors=c("real_gdp_capita","pop_sq_mi","per_hs_25plus",
+                             "vmt_per_capita"),
+                unit.variable ="state_id",
+                predictors.op = "mean",
+                dependent=c("fat_per_100m_vmt"),
+                time.variable=c("date"),
+                treatment.identifier=33,
+                controls.identifier = c(1,2,3,4,6,8,10,11,12,13,14,15,16,17,18,
+                                        19,20,21,22,23,24,25,26,27,28,29,30,32,
+                                        34,35,36,37,38,39,40,41,42,43,44,46,47,
+                                        49,50,51),
+                time.predictors.prior = c(1995:2001),
+                time.optimize.ssr     = c(1995:2008),
+                time.plot             = c(1995:2008))
+
+synth_1<- synth(df_a5,optimxmethod = c("Nelder-Mead", "BFGS"),
+                genoud = FALSE, quadopt = "ipop",
+                Margin.ipop = 5e-04,
+                Sigf.ipop = 6,
+                Bound.ipop = 10)
+
+# Q3a:  Outputting the Synthetic Control Weights
+
+weights1 <- data.frame(synth_1$solution.w)
+weights1$state_id <- as.numeric(row.names(weights1)) 
+
+states1 <- unique(df_a4[c("state_id","state")])
+states2 <- subset(states1, !(state_id %in% c(33)))
+
+df_list <- list(weights1,states2)
+weights2 <- df_list %>% reduce(full_join, by='state_id')
+
+weights3 <- subset(weights2, select = c(state, w.weight))
+
+weights3$w.weight <- ifelse(weights3$w.weight < 1e-06,0,weights3$w.weight)
+
+weights3$w.weight <- round(weights3$w.weight,3)
+
+weights4 <- filter(weights3, w.weight>0)
+
+
+print("Synthetic New York State-Level Synthetic Control Weights")
+print(weights4)
+```
+
+##### Which states have non-negligible SCM weights? 
+
+Hawaii and Rhode Island are the states with non-negligible SCM weights.
+
+
+##### Are these results surprising to you given your answer to question (1g)? Explain your answer.
+
+Given the SCM results, it is not entirely surprising to see states like Hawaii and Rhode Island with non-negligible weights, as the method rigorously identifies states with predictor values that best match the pre-intervention fatality rates of New York. While our qualitative analysis in question (1g) highlighted states like Massachusetts, New Jersey, and Connecticut, the SCM method’s quantitative approach ensures that even states not immediately apparent in our initial assessment can have significant contributions based on underlying similarities in economic, educational, and transportation characteristics. Thus, the SCM results complement our earlier analysis by providing a more data-driven perspective on state similarities.
+
+#### (3b) Report for the pre-intervention period the averages of GDP per capita, population density, HS graduation percent, and VMT per capita for New York, Synthetic New York, and all donor pool states.  (11 points)
+
+Run the following code chunk to produce the synthetic control model weights. You do not need to make any changes in the code.
+
+```{r}
+# Q3b:  Average of New York and Synthetic New York Pre-Intervention Predictor
+# Averages
+
+# Average New York
+df_a4_1 <- df_a4[df_a4$date < 2002,]
+df_a4_2 <- subset(df_a4_1, select = c("state","state_id","date",
+                              "real_gdp_capita","pop_sq_mi","per_hs_25plus",
+                              "vmt_per_capita"))
+df_a4_3 <- subset(df_a4_2, (state_id %in% c(33)))
+df_a4_4 <- subset(df_a4_3, select = -c(date,state_id))
+ave_1 <- df_a4_4 %>% 
+  group_by(state) %>%
+  summarise(across(everything(), mean))
+
+# Synthetic New York
+df_list <- list(weights4,df_a4_2) 
+df_a4_5 <- df_list %>% reduce(left_join, by='state')
+df_a4_6 <- subset(df_a4_5, select = -c(state_id))
+df_a4_7 <- df_a4_6 %>% 
+  mutate(
+    real_gdp_capita=real_gdp_capita*w.weight,
+    pop_sq_mi=pop_sq_mi*w.weight,
+    per_hs_25plus=per_hs_25plus*w.weight,
+    vmt_per_capita=vmt_per_capita*w.weight)
+df_a4_8 <- subset(df_a4_7, select = -c(w.weight,state))
+df_a4_8$state <- "SYNTHETIC NEW YORK"
+
+ave_hold <- df_a4_8 %>% 
+  group_by(state,date) %>%
+  summarise(across(everything(), sum))
+
+ave_hold0 <- subset(ave_hold, select = -c(date))
+
+ave_2 <- ave_hold0 %>% 
+  group_by(state) %>%
+  summarise(across(everything(), mean))
+
+# Average Across All Stated But the 6 Excluded from the Analysis and New York
+df_a4_9 <- subset(df_a4_2, !(state_id %in% c(33)))
+df_a4_10 <- subset(df_a4_9, select = -c(date,state_id,state))
+df_a4_10$state <- "ALL DONOR POOL STATES"
+ave_3 <- df_a4_10 %>% 
+  group_by(state) %>%
+  summarise(across(everything(), mean))
+
+# Completing the Analysis
+
+aver <- as.data.frame(rbind(ave_1,ave_2,ave_3))
+aver1 <- aver %>% mutate_if(is.numeric,round,digits = 3)
+aver1$real_gdp_capita <- currency(aver1$real_gdp_capita,digits=0)
+aver1$pop_sq_mi <- format(as.integer(aver1$pop_sq_mi), big.mark=",")
+aver1$vmt_per_capita <- format(as.integer(aver1$vmt_per_capita), big.mark=",")
+
+
+print("Pre-Intervention Period Predictor Averages for")
+print("New York, Synthetic New York, and All Donor Pool States")
+print(aver1)
+
+
+rm(list = ls()[grepl("df_a4_", ls())])
+rm(list = ls()[grepl("ave_", ls())])
+rm(list = ls()[grepl("aver", ls())])
+```
+
+##### For which predictors is the absolute difference between New York and all donor pool states smaller than the absolute difference between New York and Synthetic New York?
+
+Based on the absolute differences:
+•	Real GDP Per Capita: The absolute difference between New York and Synthetic New York ($9,111) is smaller than the difference between New York and all donor pool states ($11,720).
+•	Population Density: The absolute difference between New York and all donor pool states (252) is smaller than the difference between New York and Synthetic New York (277).
+•	HS Graduation Percent: The absolute difference between New York and Synthetic New York (0.002) is smaller than the difference between New York and all donor pool states (0.019).
+•	VMT Per Capita: The absolute difference between New York and Synthetic New York (581) is smaller than the difference between New York and all donor pool states (3,684).
+
+Conclusion
+The predictors for which the absolute difference between New York and all donor pool states is smaller than the absolute difference between New York and Synthetic New York are:
+Population Density
+For the other predictors (Real GDP Per Capita, HS Graduation Percent, and VMT Per Capita), the absolute difference between New York and Synthetic New York is smaller, indicating that the synthetic control is closer to New York in terms of these predictors.
+
+
+
+#### (3c) Use the path.plot function to create a time series graph of fatality rate for New York and Synthetic New York for 1995 through 2008. Set intake=2002 to mark the first full year where the New York handheld cell phone ban was enacted. See (1a) above for expectations on formatting this graph and the graph that follows. (11 points)
+
+```{r}
+# Q3c:  Time Series Plot of New York and Synthetic New York
+
+
+pathplot1 <- path.plot(synth.res=synth_1,dataprep.res=df_a5,tr.intake=2002,
+                       Main="New York and Synthetic New York \n Fatalities Per 100MM Vehicle Miles",
+                       Ylab="Fatality Rate",
+                       Xlab="Year",
+                       Legend = c("New York","Synthetic New York"),
+                       Legend.position="topleft")
+```
+
+
+#### (3d) Use the gaps.plot function to create a time series graph of the fatality rate difference between New York and Synthetic New York for 1995 through 2008. (11 points)
+
+```{r}
+
+# Q3d:  Time Series Gap Plot
+
+gapplot1 <- gaps.plot(synth.res=synth_1,dataprep.res=df_a5,tr.intake=2002,
+                      Main="New York and Synthetic New York Fatality Rate Difference",
+                      Ylab="Fatality Rate Difference",
+                      Xlab="Year",
+                      Ylim = c(-0.3,0.3))
+```
+
+
+#### (3e) Using the synthetic control gap estimates and vehicle miles driven in 100’s of millions in New York, the variable vmt traveled 100m, calculate a point estimate of the aggregated expected decrease in fatalities due to the ban for the year of 2002 through 2008. For 2010, Blincoe et al. (2015) estimate the lifetime economic cost to society for each fatality is $1.4 million. Using this value what is the aggregate expected decrease in economic costs due to the New York ban for 2002 through 2008? (11 points)
+
+
+```{r}
+# Q3e:  Use gap estimates and vehicle miles driven in 100s of millions in New 
+# York to obtain point estimate of the expected decrease in fatalities due to 
+# the ban.
+
+gaps <- df_a5$Y1plot-(
+  df_a5$Y0plot%*%synth_1$solution.w) ; gaps
+
+ny_gaps_0 <- data.frame(gaps)
+ny_gaps_0$date <- as.numeric(rownames(ny_gaps_0))
+
+df_ny_0 <- filter(df_00, state=="NEW YORK")
+df_ny_1 <- subset(df_ny_0, select = c(state,date,vmt_traveled_100m))
+
+df_list <- list(ny_gaps_0,df_ny_1)
+df_ny_2 <- df_list %>% reduce(full_join, by=c('date'))
+
+df_ny_3 <- filter(df_ny_2, date > 2001)
+df_ny_3$exp_red_fat <- df_ny_3$X33*df_ny_3$vmt_traveled_100m
+
+df_ny_4 <- df_ny_3 %>% 
+  summarise(sum_exp_red_fat = format(sum(exp_red_fat),digits=3))
+
+
+print("Predicted Decrease in Fatalities")
+print("Due to Handheld Phone Ban from 2002 through 2008")
+print(df_ny_4)
+```
+The estimated total increase in fatalities due to the handheld phone ban in New York from 2002 through 2008 is 700. The aggregate expected increase in economic costs due to this increase in fatalities, using the estimated lifetime economic cost per fatality of $1.4 million, is approximately $980 million.
+
+#### (3f) How confident are you in the effectiveness of the handheld cell phone ban in in reducing motor vehicle fatalities in New York? What other information or statistical analysis would you need to complete to further your confidence? (11 points)
+
+The initial results from the SCM analysis suggest an unexpected increase in fatalities following the handheld cell phone ban in New York, which raises questions about the effectiveness of the ban. However, further analysis and additional information are needed to increase confidence in these findings. Conducting sensitivity analyses, placebo tests, including more predictors, extending the time horizon, and using alternative statistical methods would help in providing a more comprehensive understanding of the ban's effectiveness.
+
+
+
+```{r}
+# Q3f:  Below a SCM placebo test is conducted .  This illustration is an example
+# of what students may state is the incremental statistical information needed 
+# to further support the their conclusions. (our students won;t think of this)
+
+# Dropping New York and Montana, the latter is dropped due to issues with 
+# computation of the SVD.
+
+ny_mspe <- synth_1$loss.v
+
+df_b3 <- df_a4 %>% filter(!state_id %in% c(27,33)) 
+df_b4 <- as.data.frame(df_b3)
+n_placebo <- length(unique(df_b4$state_id))
+
+placebo_test <- function(input_df,id,mspe){
+
+  uniq_id <- as.vector(unique(id))
+  n_placebo <- length(uniq_id)
+  
+  for(i in 1:n_placebo)
+  {
+  treat <- uniq_id[i]
+  print("State ID")
+  print(treat)
+  nontreat <- uniq_id %>% setdiff(.,treat)
+
+  df_sloop <- dataprep(input_df,
+                    predictors=c("real_gdp_capita","pop_sq_mi","per_hs_25plus",
+                                 "vmt_per_capita"),
+                    unit.variable ="state_id",
+                    predictors.op = "mean",
+                    dependent=c("fat_per_100m_vmt"),
+                    time.variable=c("date"),
+                    treatment.identifier=treat,
+                    controls.identifier = nontreat,
+                    time.predictors.prior = c(1995:2001),
+                    time.optimize.ssr     = c(1995:2008),
+                    time.plot             = c(1995:2008))
+  
+  sloop <- synth(df_sloop ,optimxmethod = c("Nelder-Mead", "BFGS"),
+                  genoud = FALSE, quadopt = "ipop",
+                  Margin.ipop = 5e-04,
+                  Sigf.ipop = 6,
+                  Bound.ipop = 10)
+
+  sloop_gaps <- df_sloop$Y1plot-(
+    df_sloop$Y0plot%*%sloop$solution.w) ; gaps
+  sloop_gaps <- as.data.frame(sloop_gaps)
+  sloop_gaps$year <- rownames(sloop_gaps)
+
+  sloop_gaps <- sloop_gaps %>% 
+    mutate(mspe_ratio = as.numeric(sloop$loss.v/mspe))
+  
+  sloop_gaps <- sloop_gaps %>%
+    rename_with(.fn = function(.x){paste0(.x,treat)},
+                 .cols= c(mspe_ratio))
+  
+  if(!exists("sloop_gap"))
+  {sloop_gap <- sloop_gaps}
+  else
+  {df_list <- list(sloop_gap,sloop_gaps)
+  sloop_gap <- df_list %>% reduce(full_join, by=c('year'))}
+
+  rm(treat,nontreat,df_sloop,sloop,sloop_gaps)  
+  }
+  
+  return(sloop_gap)
+  rm(sloop_gap)
+}
+
+test_1 <- placebo_test(input_df=df_b4,id=df_b4$state_id,mspe=ny_mspe)
+gaps_ny <- as.data.frame(gaps)
+gaps_ny$year <- rownames(gaps_ny)
+
+df_list <- list(gaps_ny,test_1)
+placebo_1 <- df_list %>% reduce(full_join, by=c('year'))
+
+placebo_1$date <- as.Date(paste(placebo_1$year,1,1,sep = "-")) 
+
+colnames(placebo_1) <- paste('id', colnames(placebo_1), sep = '_') 
+
+# Placebo Test Graph
+# Drop Mississippi (state_id=25) and North Dakota (state_id=35) since the
+# ratio of pre-intervention MSPE to the New York MSPE is greater than 20;
+# Abadie et. al. (2010) used the same approach.
+
+
+ggplot() +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_1,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_2,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_3,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_4,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_6,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_8,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_10,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_11,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_12,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_13,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_14,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_15,
+                               colour="Placebo States"),
+            linewidth=1) + 
+  geom_line(data=placebo_1,aes(x=id_date,y=id_16,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_17,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_18,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_19,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_20,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_21,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_22,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_23,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_24,
+                               colour="Placebo States"),
+            linewidth=1) +
+#  geom_line(data=placebo_1,aes(x=id_date,y=id_25,
+#                               colour="Placebo States"),
+#            linewidth=1) + 
+  geom_line(data=placebo_1,aes(x=id_date,y=id_26,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_28,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_29,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_30,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_32,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_34,
+                               colour="Placebo States"),
+            linewidth=1) +
+#  geom_line(data=placebo_1,aes(x=id_date,y=id_35,
+#                               colour="Placebo States"),
+#            linewidth=1) + 
+  geom_line(data=placebo_1,aes(x=id_date,y=id_36,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_37,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_38,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_39,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_40,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_41,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_42,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_43,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_44,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_46,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_47,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_49,
+                               colour="Placebo States"),
+            linewidth=1) +
+  
+  geom_line(data=placebo_1,aes(x=id_date,y=id_50,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_51,
+                               colour="Placebo States"),
+            linewidth=1) +
+  geom_line(data=placebo_1,aes(x=id_date,y=id_33,
+                               colour="New York"),
+            linewidth=1) + 
+  scale_y_continuous(
+    # Features of the first axis
+    name = "Fatality Rate Difference\n",  ) + 
+  scale_x_date(date_breaks = "2 year",date_labels = "%Y") +
+  scale_color_manual(name = "",values = c("New York" = "blue", 
+                                          "Placebo States" = "gray90"))+
+  theme_classic() +
+  ggtitle("Placebo Test") +
+  theme(legend.position="top") +
+  theme(plot.title = element_text(hjust = 0.5,size=16),
+        axis.text=element_text(size=11),
+        axis.title=element_text(size=14)) +
+  xlab("\n Year") +
+  geom_vline(xintercept = as.numeric(placebo_1$id_date[8]), linetype="dotted", 
+             color = "gray", linewidth=1.0) +
+  geom_hline(yintercept = 0, linetype="dashed", 
+             color = "black", linewidth=1.5) 
+
+
+```
